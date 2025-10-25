@@ -9,9 +9,55 @@ from reportlab.lib import colors
 import io
 import requests
 import uuid
+import platform
+import os
 from firebase_config import db, bucket
 
 class CatalogService:
+    
+    @staticmethod
+    def get_font_paths():
+        """Get platform-specific font paths"""
+        system = platform.system()
+        
+        if system == "Windows":
+            base_path = "C:/Windows/Fonts"
+            return {
+                'bold': f"{base_path}/arialbd.ttf",
+                'regular': f"{base_path}/arial.ttf",
+            }
+        elif system == "Linux":
+            return {
+                'bold': "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                'regular': "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            }
+        elif system == "Darwin":  # macOS
+            return {
+                'bold': "/System/Library/Fonts/Helvetica.ttc",
+                'regular': "/System/Library/Fonts/Helvetica.ttc",
+            }
+        else:
+            return None
+    
+    @staticmethod
+    def load_fonts():
+        """Load fonts with fallback to default"""
+        font_paths = CatalogService.get_font_paths()
+        
+        try:
+            if font_paths:
+                font_title = ImageFont.truetype(font_paths['bold'], 36)
+                font_subtitle = ImageFont.truetype(font_paths['regular'], 20)
+                font_name = ImageFont.truetype(font_paths['bold'], 22)
+                font_price = ImageFont.truetype(font_paths['bold'], 28)
+                print("✅ Loaded TrueType fonts")
+                return font_title, font_subtitle, font_name, font_price
+        except Exception as e:
+            print(f"⚠️ Error loading TrueType fonts: {e}")
+        
+        print("⚠️ Using default fonts")
+        default_font = ImageFont.load_default()
+        return default_font, default_font, default_font, default_font
     
     @staticmethod
     async def get_artisan_products(artisan_id: str):
@@ -46,13 +92,32 @@ class CatalogService:
     
     @staticmethod
     def download_image(url: str) -> bytes:
-        """Download image from URL"""
+        """Download image from URL with better error handling"""
         try:
-            response = requests.get(url, timeout=10)
+            print(f"🔄 Downloading image from: {url}")
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            response = requests.get(url, timeout=15, headers=headers)
             response.raise_for_status()
+            
+            # Verify it's actually an image
+            content_type = response.headers.get('content-type', '')
+            if 'image' not in content_type.lower():
+                print(f"⚠️ URL returned non-image content-type: {content_type}")
+                return None
+            
+            print(f"✅ Downloaded image ({len(response.content)} bytes)")
             return response.content
-        except Exception as e:
+            
+        except requests.exceptions.Timeout:
+            print(f"⚠️ Timeout downloading image from {url}")
+            return None
+        except requests.exceptions.RequestException as e:
             print(f"⚠️ Error downloading image from {url}: {e}")
+            return None
+        except Exception as e:
+            print(f"⚠️ Unexpected error downloading image: {e}")
             return None
     
     @staticmethod
@@ -128,12 +193,18 @@ class CatalogService:
                     try:
                         img_data = CatalogService.download_image(image_url)
                         if img_data:
+                            # Verify image data
+                            img_buffer = io.BytesIO(img_data)
+                            test_img = Image.open(img_buffer)
+                            test_img.verify()
+                            
+                            # Create new buffer for ReportLab
                             img_buffer = io.BytesIO(img_data)
                             img = RLImage(img_buffer, width=3*inch, height=3*inch)
                             story.append(img)
                             story.append(Spacer(1, 0.1*inch))
                     except Exception as e:
-                        print(f"⚠️ Error loading image: {e}")
+                        print(f"⚠️ Error loading image for PDF: {e}")
                 
                 # Description
                 description = product.get('description', 'No description available')
@@ -216,14 +287,7 @@ class CatalogService:
             draw = ImageDraw.Draw(catalog_img)
             
             # Load fonts
-            try:
-                font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
-                font_subtitle = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
-                font_name = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
-                font_price = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
-            except:
-                print("⚠️ Using default fonts (TrueType fonts not found)")
-                font_title = font_subtitle = font_name = font_price = ImageFont.load_default()
+            font_title, font_subtitle, font_name, font_price = CatalogService.load_fonts()
             
             # Header
             artisan_name = artisan_data.get('name', 'Artisan')
@@ -278,13 +342,36 @@ class CatalogService:
                     try:
                         img_data = CatalogService.download_image(image_url)
                         if img_data:
-                            prod_img = Image.open(io.BytesIO(img_data))
-                            prod_img.thumbnail((280, 280))
+                            # Open and verify image
+                            img_buffer = io.BytesIO(img_data)
+                            prod_img = Image.open(img_buffer)
                             
+                            # Convert to RGB if necessary
+                            if prod_img.mode in ('RGBA', 'LA', 'P'):
+                                background = Image.new('RGB', prod_img.size, (255, 255, 255))
+                                if prod_img.mode == 'P':
+                                    prod_img = prod_img.convert('RGBA')
+                                background.paste(prod_img, mask=prod_img.split()[-1] if prod_img.mode == 'RGBA' else None)
+                                prod_img = background
+                            elif prod_img.mode != 'RGB':
+                                prod_img = prod_img.convert('RGB')
+                            
+                            # Resize
+                            prod_img.thumbnail((280, 280), Image.Resampling.LANCZOS)
+                            
+                            # Center the image
                             img_x = x_pos + (510 - prod_img.width) // 2
                             catalog_img.paste(prod_img, (img_x, y_pos))
+                            print(f"✅ Added product image for: {product.get('name', 'Product')}")
                     except Exception as e:
-                        print(f"⚠️ Error loading product image: {e}")
+                        print(f"⚠️ Error loading product image for {product.get('name', 'Product')}: {e}")
+                        # Draw placeholder
+                        draw.rectangle(
+                            [(x_pos, y_pos), (x_pos + 280, y_pos + 280)],
+                            fill='#f3f4f6',
+                            outline='#d1d5db'
+                        )
+                        draw.text((x_pos + 80, y_pos + 130), "No Image", fill='#9ca3af', font=font_subtitle)
                 
                 # Product details
                 text_y = y_pos + 300
@@ -307,7 +394,7 @@ class CatalogService:
             
             # Upload to Firebase Storage
             buffer = io.BytesIO()
-            catalog_img.save(buffer, format='PNG', quality=95)
+            catalog_img.save(buffer, format='PNG', quality=95, optimize=True)
             buffer.seek(0)
             
             filename = f"catalogs/{artisan_id}_{uuid.uuid4()}.png"
