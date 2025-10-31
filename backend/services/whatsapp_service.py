@@ -1,3 +1,9 @@
+"""
+Feature: Pre-Saved Customer Contacts - WhatsApp Service
+Date: November 2025
+Purpose: Enhanced WhatsApp sharing with customer management and analytics
+"""
+
 from twilio.rest import Client
 from firebase_admin import firestore
 from firebase_config import db
@@ -47,14 +53,14 @@ class WhatsAppService:
                 raise ValueError("Twilio client not initialized. Check your .env credentials.")
             
             # Get artisan data
-            artisan_ref = db.collection('profiles').document(artisan_id)
+            artisan_ref = db.collection('users').document(artisan_id)
             artisan_doc = artisan_ref.get()
             
             if not artisan_doc.exists:
                 raise ValueError(f"Artisan not found with ID: {artisan_id}")
             
             artisan_data = artisan_doc.to_dict()
-            artisan_name = artisan_data.get('name', 'Our Artisan')
+            artisan_name = artisan_data.get('displayName') or artisan_data.get('name', 'Our Artisan')
             
             # Format phone number - ensure it has country code
             if not phone_number.startswith('+'):
@@ -123,7 +129,7 @@ class WhatsAppService:
             raise Exception(f"Error sending WhatsApp: {str(e)}")
     
     async def send_bulk_catalog(self, artisan_id: str, phone_numbers: list, catalog_url: str):
-        """Send catalog to multiple numbers"""
+        """Send catalog to multiple numbers (direct phone numbers)"""
         results = []
         
         print(f"📤 Bulk sending to {len(phone_numbers)} contacts")
@@ -142,5 +148,134 @@ class WhatsAppService:
                     'success': False,
                     'error': str(e)
                 })
+        
+        return results
+    
+    async def send_bulk_catalog_by_customers(
+        self, 
+        artisan_id: str, 
+        customer_ids: list, 
+        catalog_url: str,
+        custom_message: str = None
+    ):
+        """
+        Send catalog to multiple customers using their customer IDs
+        
+        - Fetches customer data from Firestore
+        - Resolves phone numbers from customer records
+        - Sends WhatsApp messages
+        - Updates customer analytics (last_order_at, total_orders)
+        - Returns detailed results including customer names
+        """
+        results = []
+        
+        print(f"📤 Bulk sending to {len(customer_ids)} customers via customer IDs")
+        print(f"   Artisan: {artisan_id}")
+        
+        # Verify artisan exists
+        artisan_ref = db.collection('users').document(artisan_id)
+        artisan_doc = artisan_ref.get()
+        
+        if not artisan_doc.exists:
+            raise ValueError(f"Artisan not found with ID: {artisan_id}")
+        
+        artisan_data = artisan_doc.to_dict()
+        artisan_name = artisan_data.get('displayName') or artisan_data.get('name', 'Our Artisan')
+        
+        for customer_id in customer_ids:
+            try:
+                print(f"\n👤 Processing customer: {customer_id}")
+                
+                # Fetch customer data
+                customer_ref = db.collection('users').document(artisan_id)\
+                    .collection('customers').document(customer_id)
+                customer_doc = customer_ref.get()
+                
+                if not customer_doc.exists:
+                    print(f"   ⚠️ Customer not found: {customer_id}")
+                    results.append({
+                        'customer_id': customer_id,
+                        'customer_name': 'Unknown',
+                        'phone': None,
+                        'success': False,
+                        'error': 'Customer not found'
+                    })
+                    continue
+                
+                customer_data = customer_doc.to_dict()
+                customer_name = customer_data.get('name', 'Customer')
+                phone_number = customer_data.get('phone_number')
+                
+                if not phone_number:
+                    print(f"   ⚠️ No phone number for customer: {customer_name}")
+                    results.append({
+                        'customer_id': customer_id,
+                        'customer_name': customer_name,
+                        'phone': None,
+                        'success': False,
+                        'error': 'No phone number'
+                    })
+                    continue
+                
+                print(f"   Name: {customer_name}")
+                print(f"   Phone: {phone_number}")
+                
+                # Personalized message if not provided
+                if not custom_message:
+                    personalized_message = (
+                        f"Hi {customer_name}! 👋\n\n"
+                        f"🛍️ *{artisan_name}* Product Catalog\n\n"
+                        f"Check out our latest products!\n"
+                        f"Browse the catalog and place your order.\n\n"
+                        f"📱 For orders, reply to this message."
+                    )
+                else:
+                    # Insert customer name if placeholder exists
+                    personalized_message = custom_message.replace('{name}', customer_name)
+                
+                # Send WhatsApp message
+                result = await self.send_catalog(
+                    artisan_id, 
+                    phone_number, 
+                    catalog_url,
+                    personalized_message
+                )
+                
+                print(f"   ✅ Message sent successfully")
+                
+                # Update customer analytics
+                try:
+                    customer_ref.update({
+                        'last_order_at': firestore.SERVER_TIMESTAMP,
+                        'total_orders': firestore.Increment(1),
+                        'updated_at': firestore.SERVER_TIMESTAMP
+                    })
+                    print(f"   📊 Analytics updated")
+                except Exception as analytics_error:
+                    print(f"   ⚠️ Analytics update failed: {analytics_error}")
+                
+                results.append({
+                    'customer_id': customer_id,
+                    'customer_name': customer_name,
+                    'phone': phone_number,
+                    'success': True,
+                    'message_sid': result['message_sid'],
+                    'share_id': result['share_id']
+                })
+                
+            except Exception as e:
+                print(f"   ❌ Error sending to customer {customer_id}: {str(e)}")
+                results.append({
+                    'customer_id': customer_id,
+                    'customer_name': customer_data.get('name', 'Unknown') if 'customer_data' in locals() else 'Unknown',
+                    'phone': customer_data.get('phone_number') if 'customer_data' in locals() else None,
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        print(f"\n📊 Bulk send complete:")
+        print(f"   Total: {len(results)}")
+        print(f"   Success: {sum(1 for r in results if r['success'])}")
+        print(f"   Failed: {sum(1 for r in results if not r['success'])}")
         
         return results

@@ -53,9 +53,9 @@ class CatalogService:
                 print("✅ Loaded TrueType fonts")
                 return font_title, font_subtitle, font_name, font_price
         except Exception as e:
-            print(f"⚠️ Error loading TrueType fonts: {e}")
+            print(f"⚠ Error loading TrueType fonts: {e}")
         
-        print("⚠️ Using default fonts")
+        print("⚠ Using default fonts")
         default_font = ImageFont.load_default()
         return default_font, default_font, default_font, default_font
     
@@ -63,7 +63,7 @@ class CatalogService:
     async def get_artisan_products(artisan_id: str):
         """Fetch artisan profile and products from Firestore"""
         try:
-            # Get artisan profile
+            # Get artisan profile from users collection
             artisan_ref = db.collection('users').document(artisan_id)
             artisan_doc = artisan_ref.get()
             
@@ -73,22 +73,29 @@ class CatalogService:
             artisan_data = artisan_doc.to_dict()
             artisan_data['id'] = artisan_doc.id
             
-            # Get products
-            products_ref = db.collection('products').where('artisan_id', '==', artisan_id).stream()
-            products = []
+            print(f"✅ Found artisan: {artisan_data.get('name', 'Unknown')}")
             
-            for product in products_ref:
-                product_data = product.to_dict()
-                product_data['id'] = product.id
+            # ✅ FIX: Products are in a separate collection, not embedded
+            # Query products collection by artisan_id field
+            products_ref = db.collection('products').where('artisan_id', '==', artisan_id)
+            products_docs = products_ref.stream()
+            
+            # Convert to list of dictionaries
+            products = []
+            for doc in products_docs:
+                product_data = doc.to_dict()
+                product_data['id'] = doc.id  # Add document ID
                 products.append(product_data)
             
+            if not products or len(products) == 0:
+                raise ValueError(f"No products found for artisan: {artisan_id}")
+
             print(f"📦 Found {len(products)} products for artisan {artisan_id}")
-            
             return artisan_data, products
             
         except Exception as e:
             print(f"❌ Error fetching data: {str(e)}")
-            raise Exception(f"Error fetching data: {str(e)}")
+            raise Exception(f"Error fetching data: {str(e)}")    
     
     @staticmethod
     def download_image(url: str) -> bytes:
@@ -104,20 +111,20 @@ class CatalogService:
             # Verify it's actually an image
             content_type = response.headers.get('content-type', '')
             if 'image' not in content_type.lower():
-                print(f"⚠️ URL returned non-image content-type: {content_type}")
+                print(f"⚠ URL returned non-image content-type: {content_type}")
                 return None
             
             print(f"✅ Downloaded image ({len(response.content)} bytes)")
             return response.content
             
         except requests.exceptions.Timeout:
-            print(f"⚠️ Timeout downloading image from {url}")
+            print(f"⚠ Timeout downloading image from {url}")
             return None
         except requests.exceptions.RequestException as e:
-            print(f"⚠️ Error downloading image from {url}: {e}")
+            print(f"⚠ Error downloading image from {url}: {e}")
             return None
         except Exception as e:
-            print(f"⚠️ Unexpected error downloading image: {e}")
+            print(f"⚠ Unexpected error downloading image: {e}")
             return None
     
     @staticmethod
@@ -165,7 +172,7 @@ class CatalogService:
             )
             
             # Header
-            artisan_name = artisan_data.get('displayName') or artisan_data.get('name', 'Artisan')
+            artisan_name = artisan_data.get('name', 'Artisan')
             header = Paragraph(f"<b>{artisan_name}</b><br/>Product Catalog", title_style)
             story.append(header)
             story.append(Spacer(1, 0.3*inch))
@@ -204,7 +211,7 @@ class CatalogService:
                             story.append(img)
                             story.append(Spacer(1, 0.1*inch))
                     except Exception as e:
-                        print(f"⚠️ Error loading image for PDF: {e}")
+                        print(f"⚠ Error loading image for PDF: {e}")
                 
                 # Description
                 description = product.get('description', 'No description available')
@@ -364,7 +371,7 @@ class CatalogService:
                             catalog_img.paste(prod_img, (img_x, y_pos))
                             print(f"✅ Added product image for: {product.get('name', 'Product')}")
                     except Exception as e:
-                        print(f"⚠️ Error loading product image for {product.get('name', 'Product')}: {e}")
+                        print(f"⚠ Error loading product image for {product.get('name', 'Product')}: {e}")
                         # Draw placeholder
                         draw.rectangle(
                             [(x_pos, y_pos), (x_pos + 280, y_pos + 280)],
