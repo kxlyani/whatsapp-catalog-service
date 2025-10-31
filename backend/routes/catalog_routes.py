@@ -520,3 +520,76 @@ async def share_whatsapp_by_customers(request: BulkShareByCustomerRequest):
     except Exception as e:
         print(f"❌ Error in bulk share: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+from fastapi import Request
+
+@router.post("/webhook/twilio")
+async def twilio_webhook(request: Request):
+    """
+    Twilio WhatsApp Webhook
+
+    Workflow:
+    - Fired when ANY user sends message to Sandbox
+    - Extracts phone number
+    - Auto-creates customer entry as "New Lead" if not exists
+    - Updates last_seen timestamp for analytics
+    """
+    try:
+        from firebase_config import db
+
+        form = await request.form()
+        from_number = form.get("From")  # e.g. "whatsapp:+919876543210"
+        message_body = form.get("Body", "")
+        
+        print("📩 Incoming WhatsApp Webhook:")
+        print(f"   From: {from_number}")
+        print(f"   Body: {message_body}")
+
+        if not from_number:
+            return {"success": False, "error": "Missing phone number"}
+
+        # ✅ Clean phone number
+        phone = from_number.replace("whatsapp:", "").strip()
+        if not phone.startswith("+"):
+            phone = "+91" + phone.lstrip("0")
+
+        # ✅ TEMP artisan assignment (Sandbox only)
+        # Later replace with dynamic artisan matching (based on business WhatsApp number)
+        artisan_id = "test_artisan_1"  # TODO: Replace with real artisan selection logic
+
+        customer_ref = db.collection('users').document(artisan_id)\
+            .collection('customers').document(phone)
+
+        # Check if customer exists
+        customer_doc = customer_ref.get()
+
+        if customer_doc.exists:
+            print("🔄 Existing customer → updating last_seen")
+            update_data = {
+                "last_seen": firestore.SERVER_TIMESTAMP,
+                "message_count": firestore.Increment(1)
+            }
+            customer_ref.update(update_data)
+
+        else:
+            print("🆕 New customer lead → creating record")
+            new_customer_data = {
+                "id": phone,
+                "artisan_id": artisan_id,
+                "name": "New Customer",
+                "phone_number": phone,
+                "tags": ["New Lead"],
+                "created_at": firestore.SERVER_TIMESTAMP,
+                "updated_at": firestore.SERVER_TIMESTAMP,
+                "last_seen": firestore.SERVER_TIMESTAMP,
+                "message_count": 1,
+                "total_orders": 0
+            }
+            customer_ref.set(new_customer_data)
+
+        print("✅ Webhook processed")
+        return {"success": True}
+
+    except Exception as e:
+        print(f"❌ Webhook Error: {e}")
+        return {"success": False, "error": str(e)}
