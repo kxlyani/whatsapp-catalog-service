@@ -33,9 +33,9 @@ function App() {
                 placeholder="Enter artisan ID from Firestore"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              {/* <p className="text-xs text-gray-500 mt-1">
                 This should match a document ID in your 'profiles' collection
-              </p>
+              </p> */}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -59,14 +59,14 @@ function App() {
         <CatalogShare artisanId={artisanId} artisanName={artisanName} />
 
         {/* Instructions */}
-        <div className="bg-white rounded-lg shadow-md p-6 mt-8">
+        {/* <div className="bg-white rounded-lg shadow-md p-6 mt-8">
           <h2 className="text-xl font-semibold mb-4">📋 Setup Instructions</h2>
           <div className="space-y-4 text-sm text-gray-700">
             <div>
               <h3 className="font-semibold text-gray-900 mb-2">1. Firestore Setup</h3>
               <p>Create test data in Firestore:</p>
               <ul className="list-disc ml-6 mt-2 space-y-1">
-                <li>Collection: <code className="bg-gray-100 px-2 py-1 rounded">profiles</code></li>
+                <li>Collection: <code className="bg-gray-100 px-2 py-1 rounded">users</code></li>
                 <li>Document ID: <code className="bg-gray-100 px-2 py-1 rounded">test_artisan_1</code></li>
                 <li>Fields: <code className="bg-gray-100 px-2 py-1 rounded">name</code>, <code className="bg-gray-100 px-2 py-1 rounded">email</code>, <code className="bg-gray-100 px-2 py-1 rounded">phone</code></li>
               </ul>
@@ -85,7 +85,7 @@ function App() {
               <code className="bg-gray-100 px-3 py-2 rounded block">cd backend && python main.py</code>
             </div>
           </div>
-        </div>
+        </div> */}
       </div>
     </div>
   );

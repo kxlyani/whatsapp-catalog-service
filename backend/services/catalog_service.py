@@ -64,7 +64,7 @@ class CatalogService:
         """Fetch artisan profile and products from Firestore"""
         try:
             # Get artisan profile
-            artisan_ref = db.collection('profiles').document(artisan_id)
+            artisan_ref = db.collection('users').document(artisan_id)
             artisan_doc = artisan_ref.get()
             
             if not artisan_doc.exists:
@@ -165,7 +165,7 @@ class CatalogService:
             )
             
             # Header
-            artisan_name = artisan_data.get('name', 'Artisan')
+            artisan_name = artisan_data.get('displayName') or artisan_data.get('name', 'Artisan')
             header = Paragraph(f"<b>{artisan_name}</b><br/>Product Catalog", title_style)
             story.append(header)
             story.append(Spacer(1, 0.3*inch))
