@@ -1,3 +1,5 @@
+# //catalog_service.py
+
 from firebase_admin import firestore, storage
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
